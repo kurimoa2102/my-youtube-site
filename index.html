@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Privacy Player</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        h2 {
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .input-group input {
+            flex-grow: 1;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .input-group button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            background-color: #c4302b;
+        }
+        .input-group button:hover {
+            background-color: #a02622;
+        }
+        #search-container { margin-bottom: 20px; }
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .video-wrapper iframe {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;
+        }
+        #errorMessage { color: red; margin-top: 10px; text-align: center; }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #clearHistoryButton {
+            padding: 5px 10px;
+            font-size: 12px;
+            background-color: #6c757d;
+            cursor: pointer;
+            border-radius: 4px;
+            color: white;
+            border: none;
+        }
+        #clearHistoryButton:hover { background-color: #5a6268; }
+        #historyList {
+            list-style: none;
+            padding: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        #historyList li {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #historyList li:last-child { border-bottom: none; }
+        #historyList li:hover { background-color: #f0f0f0; }
+        #historyList .no-history {
+            padding: 10px;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>YouTube Privacy Player</h1>
+
+        <h2>1. 動画を検索する</h2>
+        <div id="search-container">
+            <script async src="https://cse.google.com/cse.js?cx=d02f1e46ace6b4d88"></script>
+            <div class="gcse-search"></div>
+        </div>
+
+        <h2>2. URLを貼り付けて再生</h2>
+        <div class="input-group">
+            <input type="text" id="youtubeUrl" placeholder="ここにYouTubeのURLを貼り付け">
+            <button id="playButton">表示</button>
+        </div>
+
+        <div class="video-wrapper" id="videoContainer"></div>
+        <p id="errorMessage"></p>
+
+        <div class="history-header">
+            <h2>3. 視聴履歴</h2>
+            <button id="clearHistoryButton">履歴を消去</button>
+        </div>
+        <ul id="historyList">
+        </ul>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('youtubeUrl');
+        const playButton = document.getElementById('playButton');
+        const videoContainer = document.getElementById('videoContainer');
+        const errorMessage = document.getElementById('errorMessage');
+        
+        const historyList = document.getElementById('historyList');
+        const clearHistoryButton = document.getElementById('clearHistoryButton');
+        const HISTORY_KEY = 'youtubePlayerHistory';
+        const MAX_HISTORY_ITEMS = 20;
+
+        function extractVideoId(url) {
+            if (!url) return null;
+            const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([\w-]{11})/;
+            const match = url.match(regex);
+            return match ? match[1] : null;
+        }
+        
+        async function playVideo() {
+            let urlToProcess = urlInput.value.trim();
+            errorMessage.textContent = '';
+
+            if (urlToProcess.includes('google.com/url?')) {
+                try {
+                    const urlObject = new URL(urlToProcess);
+                    const realYoutubeUrl = urlObject.searchParams.get('q');
+                    if (realYoutubeUrl) {
+                        urlToProcess = realYoutubeUrl;
+                    }
+                } catch (e) {
+                    console.error("URL解析エラー:", e);
+                }
+            }
+            
+            const videoId = extractVideoId(urlToProcess);
+
+            if (videoId) {
+                const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`;
+                videoContainer.innerHTML = `<iframe src="${embedUrl}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                
+                try {
+                    const response = await fetch(`https://www.youtube.com/oembed?url=http://www.youtube.com/watch?v=${videoId}&format=json`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        addToHistory(videoId, data.title);
+                    }
+                } catch (error) {
+                    console.error('動画情報の取得に失敗:', error);
+                    addToHistory(videoId, `動画ID: ${videoId}`);
+                }
+
+            } else {
+                errorMessage.textContent = '有効なYouTubeのURLを入力してください。';
+                videoContainer.innerHTML = '';
+            }
+        }
+
+        function getHistory() {
+            const historyJson = localStorage.getItem(HISTORY_KEY);
+            return historyJson ? JSON.parse(historyJson) : [];
+        }
+
+        function saveHistory(history) {
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        }
+
+        function addToHistory(videoId, videoTitle) {
+            let history = getHistory();
+            history = history.filter(item => item.id !== videoId);
+            history.unshift({ id: videoId, title: videoTitle });
+            if (history.length > MAX_HISTORY_ITEMS) {
+                history.pop();
+            }
+            saveHistory(history);
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const history = getHistory();
+            historyList.innerHTML = '';
+            if (history.length === 0) {
+                historyList.innerHTML = '<li class="no-history">視聴履歴はありません。</li>';
+            } else {
+                history.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item.title;
+                    li.dataset.videoId = item.id;
+                    historyList.appendChild(li);
+                });
+            }
+        }
+
+        playButton.addEventListener('click', playVideo);
+
+        urlInput.addEventListener('keypress', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                playVideo();
+            }
+        });
+
+        historyList.addEventListener('click', event => {
+            if (event.target.tagName === 'LI' && event.target.dataset.videoId) {
+                const videoId = event.target.dataset.videoId;
+                urlInput.value = `https://www.youtube.com/watch?v=${videoId}`;
+                playVideo();
+                window.scrollTo(0, 0);
+            }
+        });
+        
+        clearHistoryButton.addEventListener('click', () => {
+            if (confirm('本当に視聴履歴をすべて消去しますか？')) {
+                localStorage.removeItem(HISTORY_KEY);
+                renderHistory();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderHistory();
+            
+            const params = new URLSearchParams(window.location.search);
+            const youtubeUrlFromParam = params.get('url');
+            if (youtubeUrlFromParam) {
+                urlInput.value = decodeURIComponent(youtubeUrlFromParam);
+                playVideo();
+            }
+        });
+    </script>
+</body>
+</html>
